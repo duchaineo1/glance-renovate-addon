@@ -15,8 +15,9 @@ import (
 
 const cacheTTL = 5 * time.Minute
 
-// matches unchecked Renovate dashboard checkboxes: - [ ] <!-- ... --> <content>
-var itemRe = regexp.MustCompile(`(?m)^\s*- \[ \] <!--.*?-->\s*(.+)$`)
+// matches unchecked Renovate dashboard checkboxes with a key=value comment (update items);
+// control items like <!-- rebase-all-open-prs --> have no = and are excluded by this pattern
+var itemRe = regexp.MustCompile(`(?m)^\s*- \[ \] <!-- *[\w-]+=\S[^>]*-->\s*(.+)$`)
 
 type ghIssue struct {
 	Title       string    `json:"title"`
@@ -54,11 +55,9 @@ func parseItems(body string) []string {
 	matches := itemRe.FindAllStringSubmatch(body, -1)
 	items := make([]string, 0, len(matches))
 	for _, m := range matches {
-		item := cleanItem(m[1])
-		if item == "" || strings.HasPrefix(item, "Check this box") {
-			continue
+		if item := cleanItem(m[1]); item != "" {
+			items = append(items, item)
 		}
-		items = append(items, item)
 	}
 	return items
 }
@@ -139,18 +138,20 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var b strings.Builder
+	b.WriteString(`<ul class="list list-gap-14 collapsible-container" data-collapse-after="5">`)
 	for _, repo := range results {
 		fmt.Fprintf(&b,
-			`<div class="margin-bottom-10"><a class="size-h4 color-primary-if-not-visited block" href="%s" target="_blank">%s</a>`,
+			`<li><a class="size-h4 color-primary-if-not-visited" href="%s" target="_blank">%s</a>`,
 			html.EscapeString(repo.URL),
 			html.EscapeString(repo.Name),
 		)
-		b.WriteString(`<ul class="list list-gap-4 margin-top-5">`)
+		b.WriteString(`<ul class="list list-gap-4 margin-top-4">`)
 		for _, item := range repo.Items {
-			fmt.Fprintf(&b, `<li class="size-h5">%s</li>`, html.EscapeString(item))
+			fmt.Fprintf(&b, `<li class="size-h5 color-subdue">%s</li>`, html.EscapeString(item))
 		}
-		b.WriteString(`</ul></div>`)
+		b.WriteString(`</ul></li>`)
 	}
+	b.WriteString(`</ul>`)
 	fmt.Fprint(w, b.String())
 }
 
