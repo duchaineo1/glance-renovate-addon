@@ -27,7 +27,7 @@ Renovate opens a dependency dashboard issue in each tracked repository. This ser
 ## Running with Docker
 
 ```sh
-docker run -e GITHUB_TOKEN=... -e REPOS=org/repo1,org/repo2 -p 8080:8080 ghcr.io/duchaineo1/glance-addon:latest
+docker run -e GITHUB_TOKEN=... -e REPOS=org/repo1,org/repo2 -p 8080:8080 ghcr.io/duchaineo1/glance-renovate-addon:latest
 ```
 
 ## Deploying to Kubernetes

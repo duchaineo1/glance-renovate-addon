@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/glance-addon
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/glance-renovate-addon
   REGISTRY: ghcr.io
 
 jobs:
