@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -14,46 +15,55 @@ import (
 
 const cacheTTL = 5 * time.Minute
 
+// matches unchecked Renovate dashboard checkboxes: - [ ] <!-- ... --> <content>
+var itemRe = regexp.MustCompile(`(?m)^\s*- \[ \] <!--.*?-->\s*(.+)$`)
+
 type ghIssue struct {
 	Title       string    `json:"title"`
 	HTMLURL     string    `json:"html_url"`
+	Body        string    `json:"body"`
 	CreatedAt   time.Time `json:"created_at"`
-	PullRequest *struct{} `json:"pull_request"` // non-nil when the issue is actually a PR
+	PullRequest *struct{} `json:"pull_request"`
 	User        struct {
 		Login string `json:"login"`
 	} `json:"user"`
 }
 
-type prEntry struct {
-	Title string
+type repoResult struct {
+	Name  string
 	URL   string
-	Repo  string
-	Age   string
+	Items []string
 }
 
 var (
 	githubToken string
 	repoList    []string
 	mu          sync.Mutex
-	cached      []prEntry
+	cached      []repoResult
 	cacheTime   time.Time
 )
 
-func fmtAge(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	}
+func cleanItem(s string) string {
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, " -> ", " → ")
+	return strings.TrimSpace(s)
 }
 
-func fetchIssues() ([]prEntry, error) {
+func parseItems(body string) []string {
+	matches := itemRe.FindAllStringSubmatch(body, -1)
+	items := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if item := cleanItem(m[1]); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func fetchIssues() ([]repoResult, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	var entries []prEntry
+	var results []repoResult
 
 	for _, repo := range repoList {
 		url := fmt.Sprintf("https://api.github.com/repos/%s/issues?state=open&creator=renovate%%5Bbot%%5D&per_page=100", repo)
@@ -82,61 +92,63 @@ func fetchIssues() ([]prEntry, error) {
 
 		for _, issue := range issues {
 			if issue.PullRequest != nil {
-				continue // issues endpoint returns PRs too
+				continue
 			}
-			entries = append(entries, prEntry{
-				Title: issue.Title,
-				URL:   issue.HTMLURL,
-				Repo:  shortName,
-				Age:   fmtAge(issue.CreatedAt),
-			})
+			items := parseItems(issue.Body)
+			if len(items) > 0 {
+				results = append(results, repoResult{
+					Name:  shortName,
+					URL:   issue.HTMLURL,
+					Items: items,
+				})
+			}
 		}
 	}
-	return entries, nil
+	return results, nil
 }
 
-func getIssues() ([]prEntry, error) {
+func getIssues() ([]repoResult, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if time.Since(cacheTime) < cacheTTL {
 		return cached, nil
 	}
-	issues, err := fetchIssues()
+	results, err := fetchIssues()
 	if err != nil {
 		return cached, err // return stale on error
 	}
-	cached = issues
+	cached = results
 	cacheTime = time.Now()
 	return cached, nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	issues, err := getIssues()
-	if err != nil && len(issues) == 0 {
+	results, err := getIssues()
+	if err != nil && len(results) == 0 {
 		http.Error(w, "failed to fetch issues: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
 
-	if len(issues) == 0 {
+	if len(results) == 0 {
 		fmt.Fprint(w, `<p class="size-h5 color-subdue">No pending Renovate updates</p>`)
 		return
 	}
 
 	var b strings.Builder
-	b.WriteString(`<ul class="list list-gap-10 collapsible-container" data-collapse-after="5">`)
-	for _, issue := range issues {
+	for _, repo := range results {
 		fmt.Fprintf(&b,
-			`<li><a class="size-h4 color-primary-if-not-visited" href="%s" target="_blank">%s</a>`+
-				`<p class="size-h6 color-subdue">%s &bull; %s</p></li>`,
-			html.EscapeString(issue.URL),
-			html.EscapeString(issue.Title),
-			html.EscapeString(issue.Repo),
-			issue.Age,
+			`<div class="margin-bottom-10"><a class="size-h4 color-primary-if-not-visited block" href="%s" target="_blank">%s</a>`,
+			html.EscapeString(repo.URL),
+			html.EscapeString(repo.Name),
 		)
+		b.WriteString(`<ul class="list list-gap-4 margin-top-5">`)
+		for _, item := range repo.Items {
+			fmt.Fprintf(&b, `<li class="size-h5">%s</li>`, html.EscapeString(item))
+		}
+		b.WriteString(`</ul></div>`)
 	}
-	b.WriteString(`</ul>`)
 	fmt.Fprint(w, b.String())
 }
 
