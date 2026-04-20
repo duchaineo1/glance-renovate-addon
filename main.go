@@ -138,16 +138,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var b strings.Builder
-	b.WriteString(`<ul class="list list-gap-14 collapsible-container" data-collapse-after="5">`)
+	b.WriteString(`<ul class="list list-gap-10 collapsible-container" data-collapse-after="5">`)
 	for _, repo := range results {
 		fmt.Fprintf(&b,
-			`<li><a class="size-h4 color-primary-if-not-visited" href="%s" target="_blank">%s</a>`,
+			`<li><a class="size-h4 block text-truncate color-primary-if-not-visited" href="%s" target="_blank" rel="noreferrer">%s</a>`,
 			html.EscapeString(repo.URL),
 			html.EscapeString(repo.Name),
 		)
 		b.WriteString(`<ul class="list list-gap-4 margin-top-4">`)
 		for _, item := range repo.Items {
-			fmt.Fprintf(&b, `<li class="size-h5 color-subdue">%s</li>`, html.EscapeString(item))
+			fmt.Fprintf(&b, `<li class="size-h5 color-subdue text-truncate">%s</li>`, html.EscapeString(item))
 		}
 		b.WriteString(`</ul></li>`)
 	}
