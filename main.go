@@ -47,6 +47,8 @@ var (
 var (
 	dockerUpdateRe  = regexp.MustCompile(`(?i)^Update (.+?) Docker tag to (.+)$`)
 	generalUpdateRe = regexp.MustCompile(`(?i)^Update (.+?) to (.+)$`)
+	// matches detected dependency lines: - `image version` (image and current version in one backtick pair)
+	detectedDepRe = regexp.MustCompile("(?m)^\\s*-\\s*`([^\\s`]+)\\s+([^`]+)`")
 )
 
 func cleanItem(s string) string {
@@ -56,11 +58,22 @@ func cleanItem(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func formatItem(s string) string {
+func parseDetectedDeps(body string) map[string]string {
+	deps := make(map[string]string)
+	for _, m := range detectedDepRe.FindAllStringSubmatch(body, -1) {
+		deps[m[1]] = strings.TrimSpace(m[2])
+	}
+	return deps
+}
+
+func formatItem(s string, deps map[string]string) string {
 	if m := dockerUpdateRe.FindStringSubmatch(s); m != nil {
 		image, version := m[1], m[2]
 		if strings.Contains(version, " → ") {
 			return image + ": " + version
+		}
+		if current, ok := deps[image]; ok {
+			return image + ": " + current + " → " + version
 		}
 		return image + " → " + version
 	}
@@ -69,16 +82,20 @@ func formatItem(s string) string {
 		if strings.Contains(version, " → ") {
 			return pkg + ": " + version
 		}
+		if current, ok := deps[pkg]; ok {
+			return pkg + ": " + current + " → " + version
+		}
 		return pkg + " → " + version
 	}
 	return s
 }
 
 func parseItems(body string) []string {
+	deps := parseDetectedDeps(body)
 	matches := itemRe.FindAllStringSubmatch(body, -1)
 	items := make([]string, 0, len(matches))
 	for _, m := range matches {
-		if item := formatItem(cleanItem(m[1])); item != "" {
+		if item := formatItem(cleanItem(m[1]), deps); item != "" {
 			items = append(items, item)
 		}
 	}
