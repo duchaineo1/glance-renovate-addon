@@ -44,6 +44,11 @@ var (
 	cacheTime   time.Time
 )
 
+var (
+	dockerUpdateRe  = regexp.MustCompile(`(?i)^Update (.+?) Docker tag to (.+)$`)
+	generalUpdateRe = regexp.MustCompile(`(?i)^Update (.+?) to (.+)$`)
+)
+
 func cleanItem(s string) string {
 	s = strings.ReplaceAll(s, "**", "")
 	s = strings.ReplaceAll(s, "`", "")
@@ -51,11 +56,29 @@ func cleanItem(s string) string {
 	return strings.TrimSpace(s)
 }
 
+func formatItem(s string) string {
+	if m := dockerUpdateRe.FindStringSubmatch(s); m != nil {
+		image, version := m[1], m[2]
+		if strings.Contains(version, " → ") {
+			return image + ": " + version
+		}
+		return image + " → " + version
+	}
+	if m := generalUpdateRe.FindStringSubmatch(s); m != nil {
+		pkg, version := m[1], m[2]
+		if strings.Contains(version, " → ") {
+			return pkg + ": " + version
+		}
+		return pkg + " → " + version
+	}
+	return s
+}
+
 func parseItems(body string) []string {
 	matches := itemRe.FindAllStringSubmatch(body, -1)
 	items := make([]string, 0, len(matches))
 	for _, m := range matches {
-		if item := cleanItem(m[1]); item != "" {
+		if item := formatItem(cleanItem(m[1])); item != "" {
 			items = append(items, item)
 		}
 	}
