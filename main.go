@@ -54,9 +54,11 @@ func parseItems(body string) []string {
 	matches := itemRe.FindAllStringSubmatch(body, -1)
 	items := make([]string, 0, len(matches))
 	for _, m := range matches {
-		if item := cleanItem(m[1]); item != "" {
-			items = append(items, item)
+		item := cleanItem(m[1])
+		if item == "" || strings.HasPrefix(item, "Check this box") {
+			continue
 		}
+		items = append(items, item)
 	}
 	return items
 }
