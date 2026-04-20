@@ -14,11 +14,12 @@ import (
 
 const cacheTTL = 5 * time.Minute
 
-type ghPR struct {
-	Title     string    `json:"title"`
-	HTMLURL   string    `json:"html_url"`
-	CreatedAt time.Time `json:"created_at"`
-	User      struct {
+type ghIssue struct {
+	Title       string    `json:"title"`
+	HTMLURL     string    `json:"html_url"`
+	CreatedAt   time.Time `json:"created_at"`
+	PullRequest *struct{} `json:"pull_request"` // non-nil when the issue is actually a PR
+	User        struct {
 		Login string `json:"login"`
 	} `json:"user"`
 }
@@ -50,12 +51,12 @@ func fmtAge(t time.Time) string {
 	}
 }
 
-func fetchPRs() ([]prEntry, error) {
+func fetchIssues() ([]prEntry, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	var entries []prEntry
 
 	for _, repo := range repoList {
-		url := fmt.Sprintf("https://api.github.com/repos/%s/pulls?state=open&per_page=100", repo)
+		url := fmt.Sprintf("https://api.github.com/repos/%s/issues?state=open&creator=renovate%%5Bbot%%5D&per_page=100", repo)
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			return nil, err
@@ -69,8 +70,8 @@ func fetchPRs() ([]prEntry, error) {
 		}
 		defer resp.Body.Close()
 
-		var prs []ghPR
-		if err := json.NewDecoder(resp.Body).Decode(&prs); err != nil {
+		var issues []ghIssue
+		if err := json.NewDecoder(resp.Body).Decode(&issues); err != nil {
 			return nil, err
 		}
 
@@ -79,59 +80,60 @@ func fetchPRs() ([]prEntry, error) {
 			shortName = repo[i+1:]
 		}
 
-		for _, pr := range prs {
-			if pr.User.Login == "renovate[bot]" {
-				entries = append(entries, prEntry{
-					Title: pr.Title,
-					URL:   pr.HTMLURL,
-					Repo:  shortName,
-					Age:   fmtAge(pr.CreatedAt),
-				})
+		for _, issue := range issues {
+			if issue.PullRequest != nil {
+				continue // issues endpoint returns PRs too
 			}
+			entries = append(entries, prEntry{
+				Title: issue.Title,
+				URL:   issue.HTMLURL,
+				Repo:  shortName,
+				Age:   fmtAge(issue.CreatedAt),
+			})
 		}
 	}
 	return entries, nil
 }
 
-func getPRs() ([]prEntry, error) {
+func getIssues() ([]prEntry, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if time.Since(cacheTime) < cacheTTL {
 		return cached, nil
 	}
-	prs, err := fetchPRs()
+	issues, err := fetchIssues()
 	if err != nil {
 		return cached, err // return stale on error
 	}
-	cached = prs
+	cached = issues
 	cacheTime = time.Now()
 	return cached, nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	prs, err := getPRs()
-	if err != nil && len(prs) == 0 {
-		http.Error(w, "failed to fetch PRs: "+err.Error(), http.StatusInternalServerError)
+	issues, err := getIssues()
+	if err != nil && len(issues) == 0 {
+		http.Error(w, "failed to fetch issues: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
 
-	if len(prs) == 0 {
-		fmt.Fprint(w, `<p class="size-h5 color-subdue">No pending Renovate PRs</p>`)
+	if len(issues) == 0 {
+		fmt.Fprint(w, `<p class="size-h5 color-subdue">No pending Renovate updates</p>`)
 		return
 	}
 
 	var b strings.Builder
 	b.WriteString(`<ul class="list list-gap-10 collapsible-container" data-collapse-after="5">`)
-	for _, pr := range prs {
+	for _, issue := range issues {
 		fmt.Fprintf(&b,
 			`<li><a class="size-h4 color-primary-if-not-visited" href="%s" target="_blank">%s</a>`+
 				`<p class="size-h6 color-subdue">%s &bull; %s</p></li>`,
-			html.EscapeString(pr.URL),
-			html.EscapeString(pr.Title),
-			html.EscapeString(pr.Repo),
-			pr.Age,
+			html.EscapeString(issue.URL),
+			html.EscapeString(issue.Title),
+			html.EscapeString(issue.Repo),
+			issue.Age,
 		)
 	}
 	b.WriteString(`</ul>`)

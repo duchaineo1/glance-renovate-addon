@@ -1,0 +1,70 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/glance-addon
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Determine next version
+        id: vars
+        run: |
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION="${LATEST#v}"
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          NEW_TAG="v${major}.${minor}.$((patch + 1))"
+          echo "Bumping from $LATEST to $NEW_TAG"
+          echo "TAG=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.TAG }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Create Git tag
+        env:
+          TAG: ${{ steps.vars.outputs.TAG }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $TAG
+          git push origin $TAG
