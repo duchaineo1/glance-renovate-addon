@@ -129,7 +129,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Widget-Content-Type", "html")
 
 	if len(results) == 0 {
 		fmt.Fprint(w, `<p class="size-h5 color-subdue">No pending Renovate updates</p>`)
