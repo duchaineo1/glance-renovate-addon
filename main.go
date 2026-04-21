@@ -66,26 +66,35 @@ func parseDetectedDeps(body string) map[string]string {
 	return deps
 }
 
+func lastName(s string) string {
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
 func formatItem(s string, deps map[string]string) string {
 	if m := dockerUpdateRe.FindStringSubmatch(s); m != nil {
 		image, version := m[1], m[2]
+		label := lastName(image)
 		if strings.Contains(version, " → ") {
-			return image + ": " + version
+			return label + ": " + version
 		}
 		if current, ok := deps[image]; ok {
-			return image + ": " + current + " → " + version
+			return label + ": " + current + " → " + version
 		}
-		return image + " → " + version
+		return label + " → " + version
 	}
 	if m := generalUpdateRe.FindStringSubmatch(s); m != nil {
 		pkg, version := m[1], m[2]
+		label := lastName(pkg)
 		if strings.Contains(version, " → ") {
-			return pkg + ": " + version
+			return label + ": " + version
 		}
 		if current, ok := deps[pkg]; ok {
-			return pkg + ": " + current + " → " + version
+			return label + ": " + current + " → " + version
 		}
-		return pkg + " → " + version
+		return label + " → " + version
 	}
 	return s
 }
